@@ -1,0 +1,440 @@
+import React from 'react';
+import { t, Language } from '../utils/i18n';
+
+export interface EngineConfig {
+    provider: 'ollama' | 'api' | 'native'; // 'native' for Tesseract
+
+    // Tesseract specific
+    bin_path?: string;
+    languages?: string;
+
+    // Standard Provider Fields
+    ollama?: {
+        url: string;
+        model: string;
+    };
+    api?: {
+        url: string;
+        key: string;
+        model: string;
+        // MinerU Specific extras
+        is_ocr?: boolean;
+        enable_formula?: boolean;
+        enable_table?: boolean;
+    };
+}
+
+export interface LLMServiceConfig {
+    enabled: boolean;
+    provider: 'openai' | 'azure' | 'custom';
+    base_url: string;
+    api_key: string;
+    model_name: string;
+    prompt: string;
+}
+
+export interface Config {
+    selected_engine: string;
+    engines: {
+        tesseract: EngineConfig;
+        paddle: EngineConfig;
+        deepseek: EngineConfig;
+        mineru: EngineConfig;
+        [key: string]: any;
+    };
+    app_settings?: {
+        language: string;
+    };
+    bookmark_models?: {
+        vlm: LLMServiceConfig;
+        llm: LLMServiceConfig;
+    };
+}
+
+interface SettingsPanelProps {
+    selectedEngine: string;
+    config: Config | null;
+    language: Language;
+    onConfigChange: (newConfig: Config) => void;
+    onSave: () => void;
+}
+
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({ selectedEngine, config, language, onConfigChange, onSave }) => {
+    if (!config) return <div className="text-gray-500 text-sm">Loading config...</div>;
+
+    // Helper to update deep config
+    const updateConfig = (engine: string, section: 'ollama' | 'api' | 'root', key: string, value: any) => {
+        const newConfig = { ...config };
+        if (!newConfig.engines[engine]) newConfig.engines[engine] = { provider: 'api' }; // default
+
+        if (section === 'root') {
+            (newConfig.engines[engine] as any)[key] = value;
+        } else {
+            if (!newConfig.engines[engine][section]) {
+                // Init section if missing
+                newConfig.engines[engine][section] = { url: '', model: '', key: '' };
+            }
+            (newConfig.engines[engine][section] as any)[key] = value;
+        }
+        onConfigChange(newConfig);
+    };
+
+    // Helper to get current provider config
+    const getProviderConfig = (engine: string, section: 'ollama' | 'api') => {
+        return config.engines[engine]?.[section] || { url: '', key: '', model: '' };
+    };
+
+    const renderProviderSelector = (engine: string, options: { value: string, labelKey: string }[]) => (
+        <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('provider_strategy', language)}</label>
+            <select
+                value={config.engines[engine]?.provider || options[0].value}
+                onChange={(e) => updateConfig(engine, 'root', 'provider', e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm border p-1"
+            >
+                {options.map(opt => <option key={opt.value} value={opt.value}>{t(opt.labelKey, language)}</option>)}
+            </select>
+        </div>
+    );
+
+    const renderOllamaFields = (engine: string) => {
+        const data = getProviderConfig(engine, 'ollama');
+        return (
+            <div className="space-y-3 p-3 bg-white rounded border border-gray-100">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{t('ollama_settings', language)}</h4>
+                <div>
+                    <label className="block text-xs font-medium text-gray-500">{t('localhost_url', language)}</label>
+                    <input
+                        type="text"
+                        placeholder="http://localhost:11434"
+                        value={data.url}
+                        onChange={(e) => updateConfig(engine, 'ollama', 'url', e.target.value)}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">{t('localhost_url_desc', language)}</p>
+                </div>
+                <div>
+                    <label className="block text-xs font-medium text-gray-500">{t('model_name', language)}</label>
+                    <input
+                        type="text"
+                        placeholder={t('ph_model_ollama', language)}
+                        value={data.model}
+                        onChange={(e) => updateConfig(engine, 'ollama', 'model', e.target.value)}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
+                    />
+                </div>
+            </div>
+        );
+    };
+
+    const renderApiFields = (engine: string) => {
+        const data = getProviderConfig(engine, 'api');
+        const isMinerU = engine === 'mineru';
+        const isPaddle = engine === 'paddle';
+
+        return (
+            <div className="space-y-3 p-3 bg-white rounded border border-gray-100">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{t('api_endpoint', language)}</h4>
+                {!isPaddle && (
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500">{t('api_endpoint', language)}</label>
+                        <input
+                            type="text"
+                            placeholder={isMinerU ? "https://mineru.net/api/v4/file-urls/batch" : "https://api.example.com/v1/..."}
+                            value={data.url || ''}
+                            onChange={(e) => updateConfig(engine, 'api', 'url', e.target.value)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
+                        />
+                    </div>
+                )}
+
+                <div>
+                    <label className="block text-xs font-medium text-gray-500">
+                        {isMinerU ? t('model_version', language) : isPaddle ? t('active_model', language) : t('model_name_id', language)}
+                    </label>
+                    {isMinerU ? (
+                        <select
+                            value={data.model || "pipeline"}
+                            onChange={(e) => updateConfig(engine, 'api', 'model', e.target.value)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
+                        >
+                            <option value="pipeline">{t('ph_pipeline', language)}</option>
+                            <option value="vlm">{t('ph_vlm', language)}</option>
+                            <option value="MinerU-HTML">{t('ph_html', language)}</option>
+                        </select>
+                    ) : isPaddle ? (
+                        <select
+                            value={data.selected_model || "PP-OCRv5"}
+                            onChange={(e) => updateConfig(engine, 'api', 'selected_model', e.target.value)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
+                        >
+                            <option value="PP-OCRv5">PP-OCRv5 (Standard OCR)</option>
+                            <option value="PP-StructureV3">PP-StructureV3 (Layout Analysis)</option>
+                            <option value="PaddleOCR-VL">PaddleOCR-VL (Legacy VLM)</option>
+                            <option value="PaddleOCR-VL-1.5">PaddleOCR-VL-1.5 (Latest VLM 2026)</option>
+                        </select>
+                    ) : (
+                        <input
+                            type="text"
+                            placeholder={t('ph_model_api', language)}
+                            value={data.model || ''}
+                            onChange={(e) => updateConfig(engine, 'api', 'model', e.target.value)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
+                        />
+                    )}
+                </div>
+
+                <div>
+                    <label className="block text-xs font-medium text-gray-500">
+                        {isPaddle ? t('global_token', language) : t('api_key', language)}
+                    </label>
+                    <input
+                        type="password"
+                        placeholder={isPaddle ? "Access Token from AI Studio" : "sk-..."}
+                        value={data.key || ''}
+                        onChange={(e) => updateConfig(engine, 'api', 'key', e.target.value)}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">
+                        {isPaddle ? t('tip_paddle_token', language) : t('tip_secure_store', language)}
+                    </p>
+                </div>
+
+                {isPaddle && (() => {
+                    const selectedModel = data.selected_model || "PP-OCRv5";
+                    if (!data.models) data.models = {};
+                    if (!data.models[selectedModel]) data.models[selectedModel] = { url: '' };
+                    const mData = data.models[selectedModel];
+
+                    const updateModelProp = (key: string, val: any) => {
+                        const newModels = { ...data.models, [selectedModel]: { ...mData, [key]: val } };
+                        updateConfig('paddle', 'api', 'models', newModels);
+                    };
+
+                    const Info = ({ text }: { text: string }) => (
+                        <span className="ml-1 cursor-help text-blue-400" title={text}>ⓘ</span>
+                    );
+
+                    return (
+                        <div className="space-y-3 bg-blue-50/50 p-2 rounded border border-blue-100 mt-2">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-blue-600 uppercase">{selectedModel} {t('config_title', language)}</span>
+                                <a href="https://aistudio.baidu.com/paddleocr/task" target="_blank" rel="noreferrer" className="text-[10px] text-blue-400 hover:underline">
+                                    {t('api_guide', language)} →
+                                </a>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-medium text-gray-500">{t('api_endpoint', language)}</label>
+                                <input
+                                    type="text"
+                                    placeholder="https://aistudio.baidu.com/paddleocr/task/xxxx/ocr"
+                                    value={mData.url || ''}
+                                    onChange={(e) => updateModelProp('url', e.target.value)}
+                                    className="w-full text-[10px] p-1 border rounded"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-x-2 gap-y-2 pt-2 border-t border-blue-100">
+                                <div className="flex items-center text-[10px] text-gray-600">
+                                    <input type="checkbox" checked={!!mData.useDocOrientationClassify} onChange={(e) => updateModelProp('useDocOrientationClassify', e.target.checked)} className="rounded mr-1" />
+                                    <span>{t('orientation_fix', language)}</span>
+                                    <Info text={t('tip_orientation', language)} />
+                                </div>
+                                <div className="flex items-center text-[10px] text-gray-600">
+                                    <input type="checkbox" checked={!!mData.useDocUnwarping} onChange={(e) => updateModelProp('useDocUnwarping', e.target.checked)} className="rounded mr-1" />
+                                    <span>{t('unwarping', language)}</span>
+                                    <Info text={t('tip_unwarping', language)} />
+                                </div>
+
+                                {selectedModel === 'PP-OCRv5' && (
+                                    <div className="flex items-center text-[10px] text-gray-600">
+                                        <input type="checkbox" checked={!!mData.useTextlineOrientation} onChange={(e) => updateModelProp('useTextlineOrientation', e.target.checked)} className="rounded mr-1" />
+                                        <span>{t('textline_fix', language)}</span>
+                                        <Info text={t('tip_textline', language)} />
+                                    </div>
+                                )}
+
+                                {selectedModel === 'PP-StructureV3' && (
+                                    <>
+                                        <div className="flex items-center text-[10px] text-gray-600">
+                                            <input type="checkbox" checked={mData.useTableRecognition !== false} onChange={(e) => updateModelProp('useTableRecognition', e.target.checked)} className="rounded mr-1" />
+                                            <span>{t('table_rec', language)}</span>
+                                            <Info text={t('tip_table', language)} />
+                                        </div>
+                                        <div className="flex items-center text-[10px] text-gray-600">
+                                            <input type="checkbox" checked={mData.useFormulaRecognition !== false} onChange={(e) => updateModelProp('useFormulaRecognition', e.target.checked)} className="rounded mr-1" />
+                                            <span>{t('formula_rec', language)}</span>
+                                            <Info text={t('tip_formula', language)} />
+                                        </div>
+                                        <div className="flex items-center text-[10px] text-gray-600">
+                                            <input type="checkbox" checked={!!mData.useSealRecognition} onChange={(e) => updateModelProp('useSealRecognition', e.target.checked)} className="rounded mr-1" />
+                                            <span>{t('seal_det', language)}</span>
+                                            <Info text={t('tip_seal', language)} />
+                                        </div>
+                                        <div className="flex items-center text-[10px] text-gray-600">
+                                            <input type="checkbox" checked={!!mData.useChartRecognition} onChange={(e) => updateModelProp('useChartRecognition', e.target.checked)} className="rounded mr-1" />
+                                            <span>{t('chart_rec', language)}</span>
+                                            <Info text={t('tip_chart', language)} />
+                                        </div>
+                                    </>
+                                )}
+
+                                {selectedModel.includes('VL') && (
+                                    <>
+                                        <div className="flex items-center text-[10px] text-gray-600">
+                                            <input type="checkbox" checked={mData.useLayoutDetection !== false} onChange={(e) => updateModelProp('useLayoutDetection', e.target.checked)} className="rounded mr-1" />
+                                            <span>{t('layout_analysis', language)}</span>
+                                            <Info text={t('tip_layout', language)} />
+                                        </div>
+                                        <div className="col-span-2 space-y-2 mt-1">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-[9px] text-gray-400">{t('repetition_penalty', language)} <Info text={t('tip_rep_penalty', language)} />: {mData.repetitionPenalty || 1.0}</label>
+                                                <input type="range" min="1.0" max="2.0" step="0.1" value={mData.repetitionPenalty || 1.0} onChange={(e) => updateModelProp('repetitionPenalty', parseFloat(e.target.value))} className="w-24 h-1" />
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-[9px] text-gray-400">{t('temperature', language)} <Info text={t('tip_temp', language)} />: {mData.temperature || 0.1}</label>
+                                                <input type="range" min="0" max="1.0" step="0.05" value={mData.temperature || 0.1} onChange={(e) => updateModelProp('temperature', parseFloat(e.target.value))} className="w-24 h-1" />
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })()}
+
+                {isMinerU && (
+                    <>
+                        {data.model === 'pipeline' && (
+                            <div className="space-y-2 p-2 bg-gray-50 rounded border border-dashed border-gray-200">
+                                <h5 className="text-[10px] font-bold text-gray-500 uppercase">{t('pipeline_options', language)}</h5>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="flex items-center text-[10px] text-gray-600">
+                                        <input
+                                            type="checkbox"
+                                            checked={data.is_ocr === true}
+                                            onChange={(e) => updateConfig(engine, 'api', 'is_ocr', e.target.checked)}
+                                            className="rounded mr-1"
+                                        />
+                                        <span>{t('force_ocr', language)}</span>
+                                        <span className="ml-1 cursor-help text-gray-400" title={t('tip_force_ocr', language)}>ⓘ</span>
+                                    </div>
+                                    <div className="flex items-center text-[10px] text-gray-600">
+                                        <input
+                                            type="checkbox"
+                                            checked={data.enable_formula !== false}
+                                            onChange={(e) => updateConfig(engine, 'api', 'enable_formula', e.target.checked)}
+                                            className="rounded mr-1"
+                                        />
+                                        <span>{t('formulas', language)}</span>
+                                        <span className="ml-1 cursor-help text-gray-400" title={t('tip_formulas_en', language)}>ⓘ</span>
+                                    </div>
+                                    <div className="flex items-center text-[10px] text-gray-600">
+                                        <input
+                                            type="checkbox"
+                                            checked={data.enable_table !== false}
+                                            onChange={(e) => updateConfig(engine, 'api', 'enable_table', e.target.checked)}
+                                            className="rounded mr-1"
+                                        />
+                                        <span>{t('tables', language)}</span>
+                                        <span className="ml-1 cursor-help text-gray-400" title={t('tip_tables_en', language)}>ⓘ</span>
+                                    </div>
+                                </div>
+                                {/* Language setting moved to workspace for pipeline model */}
+                            </div>
+                        )}
+                        <p className="text-[10px] text-blue-500 bg-blue-50 p-1 rounded italic leading-relaxed">
+                            {data.model === 'vlm' && t('protip_vlm', language)}
+                            {data.model === 'pipeline' && t('protip_pipeline', language)}
+                            {data.model === 'MinerU-HTML' && t('protip_html', language)}
+                        </p>
+                    </>
+                )}
+            </div>
+        );
+    };
+
+    // --- RENDER ---
+    return (
+        <div className="bg-gray-50 p-4 rounded-md border border-gray-200 mt-2">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-bold text-gray-700 capitalize flex items-center">
+                    {selectedEngine} {t('config_title', language)}
+                </h3>
+                <button
+                    onClick={onSave}
+                    className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                    {t('save_changes', language)}
+                </button>
+            </div>
+
+            {selectedEngine === 'tesseract' && (
+                <div className="space-y-3">
+                    <p className="text-xs text-gray-500 mb-2">
+                        {t('tesseract_desc', language)}
+                    </p>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500">{t('tesseract_path', language)}</label>
+                        <input
+                            type="text"
+                            placeholder="e.g. D:\Programs\Tesseract\tesseract.exe (Leave empty to use PATH)"
+                            value={config.engines.tesseract?.bin_path || ""}
+                            onChange={(e) => updateConfig('tesseract', 'root', 'bin_path', e.target.value)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1 font-mono text-xs"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">
+                            {t('tesseract_path_desc', language)}
+                        </p>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500">{t('tesseract_langs_label', language)}</label>
+                        <input
+                            type="text"
+                            placeholder={t('tesseract_langs_ph', language)}
+                            value={config.engines.tesseract?.languages || ""}
+                            onChange={(e) => updateConfig('tesseract', 'root', 'languages', e.target.value)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1 font-mono text-xs"
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">
+                            {t('tesseract_langs_help', language)}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {selectedEngine === 'paddle' && (
+                <div className="space-y-3">
+                    {renderProviderSelector('paddle', [
+                        { value: 'api', labelKey: 'prov_paddle_api' },
+                        { value: 'ollama', labelKey: 'prov_ollama' }
+                    ])}
+
+                    {(config.engines.paddle?.provider === 'ollama') ? renderOllamaFields('paddle') : renderApiFields('paddle')}
+                </div>
+            )}
+
+            {selectedEngine === 'deepseek' && (
+                <div className="space-y-3">
+                    {renderProviderSelector('deepseek', [
+                        { value: 'ollama', labelKey: 'prov_deepseek_ollama' }
+                    ])}
+
+                    {renderOllamaFields('deepseek')}
+                </div>
+            )}
+
+            {selectedEngine === 'mineru' && (
+                <div className="space-y-3">
+                    {renderProviderSelector('mineru', [
+                        { value: 'api', labelKey: 'prov_mineru_api' }
+                    ])}
+
+                    {renderApiFields('mineru')}
+                </div>
+            )}
+        </div>
+    );
+};
+ 

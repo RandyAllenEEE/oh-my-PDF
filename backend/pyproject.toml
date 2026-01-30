@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "pdf-toolbox-backend"
+version = "0.1.0"
+description = "Backend for PDF Toolbox with OCR capabilities"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.15"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+ocrmypdf = "^16.0.0"
+pypdf = "^4.0.0"
+websockets = "^12.0"
+python-multipart = "^0.0.9"
+requests = "^2.31.0"
+pymupdf = "^1.26.7"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+black = "^24.0.0"
+pyinstaller = "^6.18.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
