@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 build/
+build_py/
 develop-eggs/
 dist/
 dist_py/
@@ -43,6 +44,12 @@ release/
 # Application Data
 config.json
 **/config.json
+workspace/
+backend/workspace/
+tests/local/
+tests/results/
+tests/artifacts/
+tests/fixtures/private/
 
 # IDEs
 .idea/

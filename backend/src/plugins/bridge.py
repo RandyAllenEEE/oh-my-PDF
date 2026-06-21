@@ -1,104 +1,156 @@
 import os
 import json
+import re
+import logging
+import sys
 from pathlib import Path
 from ocrmypdf import hookimpl
-from ocrmypdf.builtin_plugins.tesseract_ocr import TesseractOcrEngine # For type hinting if needed, or just follow protocol
 
-from .paddle import PaddleAdapter
-from .deepseek import DeepSeekAdapter
-from .mineru import MinerUPlugin
+try:
+    from .paddle import PaddleAdapter
+    from .deepseek import DeepSeekAdapter
+    from .mineru import MinerUPlugin
+except ImportError:
+    src_root = Path(__file__).resolve().parent.parent
+    if str(src_root) not in sys.path:
+        sys.path.insert(0, str(src_root))
+    from plugins.paddle import PaddleAdapter
+    from plugins.deepseek import DeepSeekAdapter
+    from plugins.mineru import MinerUPlugin
 
-# Map names to classes
+logger = logging.getLogger("pdf_toolbox.bridge")
+
+PLUGIN_BRIDGE_VERSION = "0.2.0"
+
 ADAPTERS = {
     "paddle": PaddleAdapter,
     "deepseek": DeepSeekAdapter,
-    "mineru": MinerUPlugin
+    "mineru": MinerUPlugin,
 }
+
 
 class CustomOcrEngine:
     def __init__(self, engine_name: str, config: dict):
+        logger.info(f"[Bridge] Initializing CustomOcrEngine for: {engine_name}")
         adapter_cls = ADAPTERS.get(engine_name)
         if not adapter_cls:
             raise ValueError(f"Unknown OCR engine: {engine_name}")
         self.adapter = adapter_cls(config)
+        self.engine_name = engine_name
 
     def languages(self, options):
-        # We generally return the languages supported by the adapter.
-        # For our bridge, we can just return what the user requested or what we support.
-        # Most of our adapters handle multiple languages or have their own defaults.
-        # If the adapter has a languages method, use it. Otherwise, return a default.
-        if hasattr(self.adapter, 'languages'):
-            # Assuming the adapter's languages method might return a string like Tesseract's
-            # or a list. We'll ensure it's a list and filter 'equ'.
+        if hasattr(self.adapter, "languages"):
             adapter_langs = self.adapter.languages(options)
             if isinstance(adapter_langs, str):
                 lang_list = [l.strip() for l in adapter_langs.split(";") if l.strip()]
-            else: # Assume it's already a list or iterable
+            else:
                 lang_list = [str(l).strip() for l in adapter_langs if str(l).strip()]
-            
-            # Filter out internal 'equ' if present
+
             lang_list = [l for l in lang_list if l != "equ"]
-            return lang_list if lang_list else ['eng'] # Fallback to 'eng' if filtering results in empty list
-        
-        return ['chi_sim', 'eng'] # Default fallback if adapter doesn't define languages
+            return lang_list if lang_list else ["eng"]
+
+        return ["chi_sim", "eng"]
 
     def get_deskew(self, input_file: Path, options):
-        # Return 0 if not implemented/supported by adapter
-        if hasattr(self.adapter, 'get_deskew'):
-             return self.adapter.get_deskew(input_file)
+        if hasattr(self.adapter, "get_deskew"):
+            return self.adapter.get_deskew(input_file)
         return 0
 
     def get_orientation(self, input_file: Path, options):
-        # Return 0 (no rotation) if not implemented
-        if hasattr(self.adapter, 'get_orientation'):
-             return self.adapter.get_orientation(input_file)
+        if hasattr(self.adapter, "get_orientation"):
+            return self.adapter.get_orientation(input_file)
         return 0
 
     def creator_tag(self, options):
         return f"pdf-toolbox-{self.adapter.name}"
 
     def version(self):
-        return "0.1.0"
+        return PLUGIN_BRIDGE_VERSION
 
-    def generate_hocr(self, input_file: Path, output_hocr: Path, output_text: Path, options):
-        # Delegate to adapter
+    def supports_generate_ocr(self) -> bool:
+        return False
+
+    def generate_hocr(
+        self, input_file: Path, output_hocr: Path, output_text: Path, options
+    ):
+        logger.info(
+            f"[Bridge] generate_hocr called for {input_file.name} using {self.engine_name}"
+        )
+
         try:
-            print(f"[BridgePlugin] Generating hOCR for {input_file.name} using {self.adapter.name}")
             hocr_content = self.adapter.get_hocr(input_file)
-            
-            if not hocr_content or len(hocr_content) < 100:
-                print(f"[BridgePlugin] WARNING: hOCR content is suspiciously short or empty ({len(hocr_content)} chars)")
+
+            if not hocr_content:
+                logger.error(f"[Bridge] Adapter returned empty hOCR content")
+                hocr_content = self._create_empty_hocr(input_file.name)
+            elif len(hocr_content) < 100:
+                logger.warning(
+                    f"[Bridge] hOCR content suspiciously short ({len(hocr_content)} chars)"
+                )
             else:
-                 print(f"[BridgePlugin] Successfully generated hOCR ({len(hocr_content)} chars)")
+                logger.info(
+                    f"[Bridge] Successfully generated hOCR ({len(hocr_content)} chars)"
+                )
 
             output_hocr.write_text(hocr_content, encoding="utf-8")
-            
-            # Simple text extraction from hOCR for the .txt file
-            # ocrmypdf creates this sidecar file
-            import re
-            text_content = re.sub(r'<[^>]+>', '', hocr_content)
+
+            text_content = re.sub(r"<[^>]+>", "", hocr_content)
             output_text.write_text(text_content.strip(), encoding="utf-8")
+
+            logger.info(f"[Bridge] hOCR written to {output_hocr}")
+
         except Exception as e:
-            print(f"[BridgePlugin] FAILED: {e}")
+            logger.error(
+                f"[Bridge] generate_hocr FAILED: {type(e).__name__}: {e}", exc_info=True
+            )
             raise
 
-    def generate_pdf(self, input_file: Path, output_pdf: Path, hocr_file: Path, options):
-        # We generally rely on OCRmyPDF to do the PDF generation from hOCR.
-        # But if the engine supports direct PDF, we could use it.
-        # For this roadmap, we output hOCR, so we don't strictly need to implement generate_pdf 
-        # unless we wanna bypass OCRmyPDF's renderer.
+    def _create_empty_hocr(self, filename: str) -> str:
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+ <head>
+  <title></title>
+  <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+  <meta name='ocr-system' content='pdf-toolbox-custom' />
+  <meta name='ocr-capabilities' content='ocr_page ocr_carea ocr_par ocr_line ocrx_word'/>
+ </head>
+ <body>
+  <div class='ocr_page' id='page_1' title='image "{filename}"; bbox 0 0 1 1'>
+  </div>
+ </body>
+</html>
+"""
+
+    def generate_pdf(
+        self, input_file: Path, output_pdf: Path, hocr_file: Path, options
+    ):
         pass
+
 
 @hookimpl
 def get_ocr_engine():
-    # Read config from environment variable
     config_json = os.environ.get("PDF_TOOLBOX_OCR_CONFIG")
+
     if not config_json:
-        # Fallback or error
+        logger.error("[Bridge] PDF_TOOLBOX_OCR_CONFIG environment variable not set!")
+        logger.error(f"[Bridge] Current env keys: {list(os.environ.keys())[:20]}...")
         return None
-        
-    config = json.loads(config_json)
-    engine_name = config.get("selected_engine")
-    engine_config = config.get("engines", {}).get(engine_name, {})
-    
-    return CustomOcrEngine(engine_name, engine_config)
+
+    logger.info(f"[Bridge] Found config, length={len(config_json)}")
+
+    try:
+        config = json.loads(config_json)
+        engine_name = config.get("selected_engine")
+        engine_config = config.get("engines", {}).get(engine_name, {})
+
+        logger.info(f"[Bridge] Creating engine: {engine_name}")
+        return CustomOcrEngine(engine_name, engine_config)
+
+    except json.JSONDecodeError as e:
+        logger.error(f"[Bridge] Failed to parse config JSON: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"[Bridge] Failed to create OCR engine: {e}", exc_info=True)
+        return None

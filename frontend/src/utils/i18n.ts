@@ -20,9 +20,19 @@ const translations: Translations = {
     'drag_drop': { en: 'or drag and drop', zh: '或拖拽文件到此处' },
     'max_file_size': { en: 'Supported format: PDF only', zh: '仅支持 PDF 文件' },
     'file_selected': { en: 'Selected', zh: '已选择' },
+    'uploading': { en: 'Uploading...', zh: '上传中...' },
+    'upload_ready': { en: 'Ready', zh: '已就绪' },
+    'download_result': { en: 'Download Result', zh: '下载结果' },
     'config_engine_desc': { en: 'Configure engine settings in the Settings tab.', zh: '在“设置”选项卡中配置引擎参数。' },
     'btn_start_ocr': { en: 'Start OCR Task', zh: '开始识别' },
     'btn_processing': { en: 'Processing...', zh: '处理中...' },
+    'ocr_mode_label': { en: 'OCR Mode', zh: 'OCR 模式' },
+    'ocr_mode_normal': { en: 'Normal', zh: '普通' },
+    'ocr_mode_force': { en: 'Force OCR', zh: '强制 OCR' },
+    'ocr_mode_skip': { en: 'Skip Text', zh: '跳过已有文字' },
+    'ocr_mode_normal_tip': { en: 'Run OCR on pages that do not already contain text.', zh: '对没有文字层的页面执行 OCR。' },
+    'ocr_mode_force_tip': { en: 'Rasterize and OCR every page, replacing any existing text layer.', zh: '对所有页面重新栅格化并 OCR，替换已有文字层。' },
+    'ocr_mode_skip_tip': { en: 'Skip pages that already contain text and OCR image-only pages.', zh: '跳过已有文字层的页面，仅处理图像页。' },
 
     // Bookmark Workspace
     'bookmark_title': { en: 'PDF Directory Editor', zh: 'PDF 目录编辑' },
@@ -39,7 +49,7 @@ const translations: Translations = {
     'log_no_bookmarks': { en: 'No existing bookmarks found.', zh: '未发现现有目录。' },
     'log_extract_fail': { en: 'Extraction failed: ', zh: '提取失败: ' },
     'log_task_start': { en: 'Starting Bookmark Task...', zh: '开始添加目录...' },
-    'log_task_success': { en: 'Task started successfully! Check source folder for _new.pdf', zh: '任务已启动！查看源文件夹中的 _new.pdf' },
+    'log_task_success': { en: 'Task completed. Result is ready to download.', zh: '任务完成，结果可下载。' },
     'log_error': { en: 'Error: ', zh: '错误: ' },
     'log_wait': { en: 'Waiting for actions...', zh: '等待操作...' },
 
@@ -166,7 +176,8 @@ const translations: Translations = {
     // Alerts
     'alert_config_saved': { en: 'Configuration saved successfully!', zh: '设置保存成功！' },
     'alert_config_failed': { en: 'Failed to save configuration.', zh: '保存设置失败。' },
-    'alert_no_path': { en: 'Could not get file path. Are you running in browser mode? This app requires Electron.', zh: '无法获取文件路径。请确保在 Electron 环境中运行。' },
+    'alert_no_path': { en: 'Invalid file format. PDF only.', zh: '文件格式无效，仅支持 PDF。' },
+    'alert_upload_failed': { en: 'Failed to upload PDF. Check backend service.', zh: '上传 PDF 失败，请检查后端服务。' },
     'alert_ocr_failed': { en: 'Failed to start OCR task. Check backend console.', zh: '启动 OCR 任务失败，请检查后端后台。' },
 
     // MinerU Workplace Specific

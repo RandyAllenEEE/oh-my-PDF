@@ -1,8 +1,8 @@
-
 """
 Bookmark Service
 Ported key logic from 'pdfdir' project to support handling PDF bookmarks (outlines).
 """
+
 import re
 import logging
 import os
@@ -18,16 +18,16 @@ logger = logging.getLogger("pdf_toolbox.bookmark_service")
 
 # Pre-compile regex patterns to avoid recompilation on every call
 _PAGE_NUM_PATTERNS_RAW = [
-    r"((?<!-)-?\d+)",       # Support negative numbers
-    r"\((\d+)\)",           # Support ()
-    r"\[(\d+)\]",           # Support []
-    r"\{(\d+)\}",           # Support {}
-    r"\<(\d+)\>",           # Support <>
-    r"（(\d+)）",          # Support（）
-    r"【(\d+)】",           # Support【】
-    r"「(\d+)」",           # Support「」
-    r"《(\d+)》",           # Support《》
-    r"(\d*)",               # Final pattern, without numbers
+    r"((?<!-)-?\d+)",  # Support negative numbers
+    r"\((\d+)\)",  # Support ()
+    r"\[(\d+)\]",  # Support []
+    r"\{(\d+)\}",  # Support {}
+    r"\<(\d+)\>",  # Support <>
+    r"（(\d+)）",  # Support（）
+    r"【(\d+)】",  # Support【】
+    r"「(\d+)」",  # Support「」
+    r"《(\d+)》",  # Support《》
+    r"(\d*)",  # Final pattern, without numbers
 ]
 
 COMPILED_PAGE_NUM_PATTERNS = [
@@ -35,6 +35,7 @@ COMPILED_PAGE_NUM_PATTERNS = [
 ]
 
 PREFIX_SPACE_PATTERN = re.compile(r"\s*")
+
 
 def split_page_num(text):
     """split between title and page number"""
@@ -45,15 +46,17 @@ def split_page_num(text):
             con, num = res.groups()
             break
     if con:
-        con = con.rstrip(" .-")
+        con = con.rstrip(" .-@\t")
     if num == "":
         num = 1
     return con, int(num)
+
 
 def text_to_list(text):
     if isinstance(text, list):
         return text
     return text.splitlines()
+
 
 def is_in(title, exp):
     try:
@@ -62,7 +65,10 @@ def is_in(title, exp):
         logger.error("Check regex error! %s", e)
         return False
 
-def check_level(title, level0, level1, level2, level3=None, level4=None, level5=None, other=0):
+
+def check_level(
+    title, level0, level1, level2, level3=None, level4=None, level5=None, other=0
+):
     """check the level of this title"""
     ls = [level0, level1, level2, level3, level4, level5]
     for i in range(len(ls)):
@@ -71,6 +77,7 @@ def check_level(title, level0, level1, level2, level3=None, level4=None, level5=
             return idx
     # no level found
     return other
+
 
 def generate_level_pattern_by_prefix_space(dir_list):
     """Generate regex pattern by prefix space in dir text"""
@@ -93,6 +100,7 @@ def generate_level_pattern_by_prefix_space(dir_list):
             break
     return level_patterns
 
+
 def convert_dir_text(
     dir_text,
     offset=0,
@@ -103,24 +111,25 @@ def convert_dir_text(
     level4=None,
     level5=None,
     other=0,
-    level_by_space=True, # Default to True for simpler usage in Toolbox
+    level_by_space=True,  # Default to True for simpler usage in Toolbox
     fix_non_seq=False,
 ):
     l0, l1, pagenum, index_dict = 0, 0, -float("inf"), {}
     l2, l3, l4 = 0, 0, 0
     dir_list = text_to_list(dir_text)
-    
+
     # Auto-detect levels by indentation is usually what users want
     if level_by_space:
         level0, level1, level2, level3, level4, level5 = (
             generate_level_pattern_by_prefix_space(dir_list)
         )
-        
+
     i = 0
     for di in dir_list:
         di = di.rstrip()
-        if not di: continue # Skip empty lines
-        
+        if not di:
+            continue  # Skip empty lines
+
         title, num = split_page_num(di)
         if num > pagenum or not fix_non_seq:
             pagenum = num
@@ -148,7 +157,9 @@ def convert_dir_text(
         i += 1
     return index_dict
 
+
 # --- Logic from pdfdir/src/pdf/pdf.py & bookmark.py ---
+
 
 class PdfWrapper(object):
     """Wrapper around pypdf to handle bookmark operations"""
@@ -186,7 +197,9 @@ class PdfWrapper(object):
         # pypdf pages iteration
         for i, page in enumerate(pages):
             try:
-                pages_num[page.indirect_ref.idnum] = i # Use index as page number logic inside pypdf? 
+                pages_num[page.indirect_ref.idnum] = (
+                    i  # Use index as page number logic inside pypdf?
+                )
                 # Actually pypdf page numbers are 0-indexed.
                 # The original code mapped idnum to page_number.
             except Exception as e:
@@ -200,28 +213,31 @@ class PdfWrapper(object):
         )
 
     def save_pdf(self, output_path):
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         if os.path.exists(output_path):
             os.remove(output_path)
         with open(output_path, "wb") as out:
             self.writer.write(out)
         return output_path
 
+
 def _apply_bookmarks_to_pdf(pdf_wrapper, index_dict):
     if not index_dict:
         return
-    
+
     m = max(index_dict.keys())
     parent_dict = {}  # {parent index: IndirectObject}
     max_page_num = len(pdf_wrapper.reader.pages) - 1
-    
+
     for i in range(m + 1):
-        if i not in index_dict: continue
+        if i not in index_dict:
+            continue
         value = index_dict[i]
-        
+
         # Calculate target page index (0-based)
         # value['real_num'] is the physical page number (1-based) intended directly from user input + offset
         target_page_index = min(max(0, value.get("real_num", 1) - 1), max_page_num)
-        
+
         inobject = pdf_wrapper.add_bookmark(
             value.get("title", ""),
             target_page_index,
@@ -229,31 +245,34 @@ def _apply_bookmarks_to_pdf(pdf_wrapper, index_dict):
         )
         parent_dict[i] = inobject
 
+
 class BookmarkService:
     def __init__(self):
         pass
 
-    def add_bookmarks(self, input_path: str, output_path: str, toc_text: str, page_offset: int = 0):
+    def add_bookmarks(
+        self, input_path: str, output_path: str, toc_text: str, page_offset: int = 0
+    ):
         """
         Parse toc_text and apply bookmarks to the PDF at input_path.
         Save to output_path.
         """
         if not os.path.exists(input_path):
-             raise FileNotFoundError(f"File not found: {input_path}")
-        
+            raise FileNotFoundError(f"File not found: {input_path}")
+
         # 1. Parse Directory Text
         index_dict = convert_dir_text(
-            toc_text, 
-            offset=page_offset, 
-            level_by_space=True # Assuming indentation based hierarchy
+            toc_text,
+            offset=page_offset,
+            level_by_space=True,  # Assuming indentation based hierarchy
         )
-        
+
         # 2. Add Bookmarks
         # We generally overwrite existing bookmarks when using this tool
         pdf = PdfWrapper(input_path, keep_outline=False)
-        
+
         _apply_bookmarks_to_pdf(pdf, index_dict)
-        
+
         # 3. Save
         pdf.save_pdf(output_path)
         return output_path
@@ -263,14 +282,14 @@ class BookmarkService:
         Extract bookmarks from PDF at input_path and return as formatted text.
         """
         if not os.path.exists(input_path):
-             raise FileNotFoundError(f"File not found: {input_path}")
-             
+            raise FileNotFoundError(f"File not found: {input_path}")
+
         reader = PdfReader(input_path)
         outline = reader.outline
-        
+
         if not outline:
             return ""
-            
+
         return self._outline_to_text(outline, reader)
 
     def _outline_to_text(self, outline, reader, level=0) -> str:
@@ -278,14 +297,14 @@ class BookmarkService:
         for item in outline:
             if isinstance(item, list):
                 # This is a sub-level, passed recursively
-                # use previously established level + 1? 
+                # use previously established level + 1?
                 # pypdf outline structure: [Item, [Child, Child], Item]
                 # Actually pypdf structure is: Item, Item, [Child, Child] (where list follows the parent)
-                # But sometimes it's nested. 
+                # But sometimes it's nested.
                 # Wait, pypdf outline is a list of (Destination | List[Destination | List ...])
                 # If it's a list, it's children of the *preceding* item.
                 # So if I encounter a list, I should increment level for *that list*.
-                pass 
+                pass
                 # However, my recursive call logic below handles it if I just iterate.
                 # But if I iterate, I need to know if the item is a list.
                 # If it is a list, I recurse with level+1.
@@ -295,16 +314,15 @@ class BookmarkService:
                 try:
                     title = item.title
                     page_num = reader.get_destination_page_number(item)
-                    if page_num is None: 
+                    if page_num is None:
                         page_num = 0
                     else:
-                        page_num += 1 # 1-based for user display
-                    
-                    indent = " " * (4 * level) # 4 spaces per level
+                        page_num += 1  # 1-based for user display
+
+                    indent = " " * (4 * level)  # 4 spaces per level
                     text.append(f"{indent}{title} {page_num}")
                 except Exception as e:
                     logger.warning(f"Failed to extract bookmark item: {e}")
                     continue
-                    
-        return "\n".join(text)
 
+        return "\n".join(text)

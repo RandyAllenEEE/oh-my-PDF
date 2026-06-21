@@ -1,15 +1,17 @@
 {
     "name": "pdf-toolbox-frontend",
     "private": true,
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "oh-my-PDF",
     "author": "Randy Allen",
-    "main": "dist-electron/main.js",
+    "engines": {
+        "node": "^20.19.0 || >=22.12.0"
+    },
     "scripts": {
         "dev": "vite",
-        "build": "tsc && vite build && electron-builder",
+        "build": "tsc && vite build",
         "preview": "vite preview",
-        "electron:dev": "vite"
+        "test": "vitest run"
     },
     "dependencies": {
         "clsx": "^2.1.0",
@@ -22,46 +24,12 @@
     "devDependencies": {
         "@types/react": "^18.2.66",
         "@types/react-dom": "^18.2.22",
-        "@vitejs/plugin-react": "^4.2.1",
+        "@vitejs/plugin-react": "^6.0.2",
         "autoprefixer": "^10.4.19",
-        "concurrently": "^8.2.2",
-        "electron": "^30.0.0",
-        "electron-builder": "^25.1.8",
         "postcss": "^8.4.38",
         "tailwindcss": "^3.4.3",
         "typescript": "^5.2.2",
-        "vite": "^5.2.0",
-        "vite-plugin-electron": "^0.29.0",
-        "vite-plugin-electron-renderer": "^0.14.6",
-        "wait-on": "^7.2.0"
-    },
-    "build": {
-        "appId": "com.randy.pdf-toolbox",
-        "productName": "oh-my-PDF",
-        "directories": {
-            "output": "../release"
-        },
-        "files": [
-            "dist",
-            "dist-electron"
-        ],
-        "extraResources": [
-            {
-                "from": "../backend/dist_py/pdf-toolbox-server.exe",
-                "to": "pdf-toolbox-server.exe"
-            },
-            {
-                "from": "../backend/dependencies/pngquant",
-                "to": "dependencies/pngquant"
-            },
-            {
-                "from": "../backend/dependencies/unpaper",
-                "to": "dependencies/unpaper"
-            }
-        ],
-        "win": {
-            "target": "portable",
-            "icon": "public/electron-vite.svg"
-        }
+        "vite": "^8.0.16",
+        "vitest": "^4.1.9"
     }
 }

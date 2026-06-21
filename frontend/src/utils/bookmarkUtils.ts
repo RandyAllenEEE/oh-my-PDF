@@ -35,7 +35,7 @@ export const parseLines = (text: string): ParsedLine[] => {
 
         // Extract Page and Title
         // Pattern: (Title)(Separators)(PageNumber)
-        const match = line.trim().match(/^(.*?)(?:\s+)(\d+)$/);
+        const match = line.trim().match(/^(.*?)(?:\s*@\s*|\s+)(-?\d+)$/);
         let title = line.trim();
         let page = '';
 
@@ -61,6 +61,6 @@ export const injectIndices = (text: string): string => {
         if (!p.original.trim()) return p.original;
         // Reconstruct: Indent + Index + Space + Title + Space + Page
         const indent = ' '.repeat(p.level * 4);
-        return `${indent}${p.computedIndex} ${p.title} ${p.page}`;
+        return `${indent}${p.computedIndex} ${p.title}${p.page ? ` @ ${p.page}` : ''}`;
     }).join('\n');
 };

@@ -4,6 +4,8 @@ import { useDropzone } from 'react-dropzone';
 import { t } from '../utils/i18n';
 import BookmarkEditor from './BookmarkEditor';
 import { Config } from './SettingsPanel';
+import { FileText, Download } from 'lucide-react';
+import { apiUrl, downloadUrl, uploadPdf, waitForTask, type UploadedPdf } from '../utils/api';
 
 interface BookmarkWorkspaceProps {
     language: 'en' | 'zh';
@@ -19,6 +21,8 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
     const [isProcessing, setIsProcessing] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
     const [autoNumbering, setAutoNumbering] = useState(false);
+    const [serverFile, setServerFile] = useState<UploadedPdf | null>(null);
+    const [resultUrl, setResultUrl] = useState<string | null>(null);
 
     // VLM Range State
     const [vlmStart, setVlmStart] = useState<string>('');
@@ -35,20 +39,22 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
             }
 
             setFile(selectedFile);
+            setServerFile(null);
+            setResultUrl(null);
             setTocText(''); // Clear previous text immediately
             setLogs(prev => [...prev, `${t('log_file_loaded', language)}${selectedFile.name}`]);
 
             // Auto-extract bookmarks
             try {
-                // @ts-ignore
-                const filePath = selectedFile.path;
-                if (!filePath) return;
+                setLogs(prev => [...prev, t('uploading', language)]);
+                const uploaded = await uploadPdf(selectedFile);
+                setServerFile(uploaded);
 
                 setLogs(prev => [...prev, t('log_extracting', language)]);
-                const response = await fetch('http://localhost:8000/api/bookmarks/extract', {
+                const response = await fetch(apiUrl('/api/bookmarks/extract'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ input_path: filePath })
+                    body: JSON.stringify({ input_path: uploaded.path })
                 });
 
                 if (!response.ok) throw new Error(response.statusText);
@@ -79,11 +85,12 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
         if (!file) return;
 
         setIsProcessing(true);
+        setResultUrl(null);
         setLogs(prev => [...prev, t('log_task_start', language)]);
 
         try {
-            // @ts-ignore - Electron specific
-            const filePath = file.path;
+            const source = serverFile || await uploadPdf(file);
+            if (!serverFile) setServerFile(source);
 
             // Optional: Inject indices if auto-numbering is enabled
             let finalTocText = tocText;
@@ -92,19 +99,23 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
                 setLogs(prev => [...prev, 'Auto-numbering applied to bookmarks.']);
             }
 
-            const response = await fetch('http://localhost:8000/api/bookmarks/add', {
+            const response = await fetch(apiUrl('/api/bookmarks/add'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    input_path: filePath,
-                    output_path: filePath.replace('.pdf', '_new.pdf'),
+                    input_path: source.path,
                     toc_text: finalTocText,
                     page_offset: offset
                 })
             });
 
-            if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || `API Error: ${response.statusText}`);
 
+            const task = await waitForTask(data.task_id);
+            if (task.download_url) {
+                setResultUrl(task.download_url);
+            }
             setLogs(prev => [...prev, t('log_task_success', language)]);
         } catch (error) {
             console.error(error);
@@ -137,7 +148,7 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
                 return;
             }
 
-            const response = await fetch('http://localhost:8000/api/bookmarks/clean_text', {
+            const response = await fetch(apiUrl('/api/bookmarks/clean_text'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -186,14 +197,14 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
         setIsProcessing(true);
 
         try {
-            // @ts-ignore
-            const filePath = file.path;
+            const source = serverFile || await uploadPdf(file);
+            if (!serverFile) setServerFile(source);
 
-            const response = await fetch('http://localhost:8000/api/bookmarks/ocr_page', {
+            const response = await fetch(apiUrl('/api/bookmarks/ocr_page'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    input_path: filePath,
+                    input_path: source.path,
                     start_page: start,
                     end_page: end,
                     config: vlmConfig
@@ -265,8 +276,9 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
                         </div>
                         {file && (
                             <div className="mt-2 text-sm text-green-600 font-medium flex items-center bg-green-50 p-2 rounded border border-green-200">
-                                <span className="mr-2">📄</span>
+                                <FileText size={16} className="mr-2" />
                                 {t('file_selected', language)}: {file.name}
+                                {serverFile && <span className="ml-2 text-xs text-gray-500">{t('upload_ready', language)}</span>}
                             </div>
                         )}
                     </div>
@@ -345,10 +357,10 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
                         {/* Row 4: Add Bookmarks */}
                         <button
                             onClick={handleStart}
-                            disabled={!file || isProcessing || !tocText.trim()}
+                            disabled={!file || !serverFile || isProcessing || !tocText.trim()}
                             className={`
                                 w-full h-9 rounded-lg shadow-sm text-sm font-medium text-white transition-all
-                                ${(!file || isProcessing || !tocText.trim())
+                                ${(!file || !serverFile || isProcessing || !tocText.trim())
                                     ? 'bg-gray-300 cursor-not-allowed'
                                     : 'bg-blue-600 hover:bg-blue-700 hover:shadow-md'
                                 }
@@ -356,6 +368,16 @@ const BookmarkWorkspace: React.FC<BookmarkWorkspaceProps> = ({ language, config 
                         >
                             {isProcessing ? t('btn_processing', language) : t('btn_add_bookmarks', language)}
                         </button>
+
+                        {resultUrl && (
+                            <a
+                                href={downloadUrl(resultUrl) || '#'}
+                                className="inline-flex items-center justify-center h-9 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition-colors"
+                            >
+                                <Download size={16} className="mr-2" />
+                                {t('download_result', language)}
+                            </a>
+                        )}
                     </div>
 
                     {/* 3. Logs */}

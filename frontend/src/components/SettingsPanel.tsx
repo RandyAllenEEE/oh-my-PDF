@@ -453,7 +453,7 @@ export const BookmarkAISettingsPanel: React.FC<BookmarkAISettingsProps> = ({ con
 
     if (!config) return null;
 
-    const updateBookmarkConfig = (modelType: 'vlm' | 'llm', key: keyof LLMServiceConfig, value: any) => {
+    const updateBookmarkConfig = <K extends keyof LLMServiceConfig>(modelType: 'vlm' | 'llm', key: K, value: LLMServiceConfig[K]) => {
         const newConfig = { ...config };
         if (!newConfig.bookmark_models) {
             newConfig.bookmark_models = {
@@ -472,7 +472,6 @@ export const BookmarkAISettingsPanel: React.FC<BookmarkAISettingsProps> = ({ con
             };
         }
 
-        // @ts-ignore
         newConfig.bookmark_models[modelType][key] = value;
         onConfigChange(newConfig);
     };
@@ -528,7 +527,7 @@ export const BookmarkAISettingsPanel: React.FC<BookmarkAISettingsProps> = ({ con
                         <label className="block text-xs font-medium text-gray-500">{t('provider_strategy', language)}</label>
                         <select
                             value={currentSettings.provider}
-                            onChange={(e) => updateBookmarkConfig(activeTab, 'provider', e.target.value)}
+                            onChange={(e) => updateBookmarkConfig(activeTab, 'provider', e.target.value as LLMServiceConfig['provider'])}
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm border p-1"
                         >
                             <option value="openai">OpenAI / Compatible</option>

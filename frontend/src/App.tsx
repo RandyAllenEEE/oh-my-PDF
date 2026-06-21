@@ -1,29 +1,34 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { t, Language } from './utils/i18n';
 import { EngineSelector } from './components/EngineSelector'
 import { SettingsPanel, BookmarkAISettingsPanel, Config } from './components/SettingsPanel';
 import { ProgressBar } from './components/ProgressBar'
 import BookmarkWorkspace from './components/BookmarkWorkspace'
-import { FileText, Play, Settings, Globe, Bookmark } from 'lucide-react';
+import { apiUrl, downloadUrl, uploadPdf, type UploadedPdf, type TaskStatus } from './utils/api';
+import { FileText, Play, Settings, Globe, Bookmark, Download } from 'lucide-react';
 
 function App() {
     const [activeView, setActiveView] = useState<'workspace' | 'settings' | 'bookmark'>('workspace');
     const [selectedEngine, setSelectedEngine] = useState('tesseract');
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [uploadedPdf, setUploadedPdf] = useState<UploadedPdf | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+    const [taskResult, setTaskResult] = useState<TaskStatus | null>(null);
     const [config, setConfig] = useState<Config | null>(null);
     const [docLanguage, setDocLanguage] = useState(''); // Per-task language
+    const [ocrMode, setOcrMode] = useState<'normal' | 'force' | 'skip'>('normal');
     const [deskew, setDeskew] = useState(false);
     const [optimize, setOptimize] = useState(true);
 
     // Load config on mount
     useEffect(() => {
-        fetch('http://localhost:8000/api/config')
+        fetch(apiUrl('/api/config'))
             .then(res => res.json())
             .then(data => {
                 setConfig(data);
-                // Optionally sync selected engine?
-                // setSelectedEngine(data.selected_engine);
+                setSelectedEngine(data.selected_engine || 'tesseract');
             })
             .catch(err => console.error("Failed to load config:", err));
     }, []);
@@ -31,7 +36,7 @@ function App() {
     const handleSaveConfig = async (configToSave: Config | null = config) => {
         if (!configToSave) return;
         try {
-            await fetch('http://localhost:8000/api/config', {
+            await fetch(apiUrl('/api/config'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(configToSave)
@@ -59,14 +64,29 @@ function App() {
         handleSaveConfig(newConfig); // Auto-save global settings
     };
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files && event.target.files.length > 0) {
             const file = event.target.files[0];
             if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-                alert(t('alert_no_path', language).replace('Could not get file path', 'Invalid file format. PDF only'));
+                alert(t('alert_no_path', language));
                 return;
             }
             setSelectedFile(file);
+            setUploadedPdf(null);
+            setTaskResult(null);
+            setCurrentTaskId(null);
+            setIsUploading(true);
+
+            try {
+                const uploaded = await uploadPdf(file);
+                setUploadedPdf(uploaded);
+            } catch (error) {
+                console.error("Failed to upload PDF:", error);
+                alert(t('alert_upload_failed', language));
+                setSelectedFile(null);
+            } finally {
+                setIsUploading(false);
+            }
         }
     };
 
@@ -74,27 +94,23 @@ function App() {
         if (!selectedFile) return;
 
         setIsProcessing(true);
-
-        // In Electron, File object has a 'path' property
-        const filePath = (selectedFile as any).path;
-
-        if (!filePath) {
-            alert(t('alert_no_path', language));
-            setIsProcessing(false);
-            return;
-        }
+        setCurrentTaskId(null);
+        setTaskResult(null);
 
         try {
-            const response = await fetch('http://localhost:8000/api/ocr', {
+            const source = uploadedPdf || await uploadPdf(selectedFile);
+            if (!uploadedPdf) setUploadedPdf(source);
+
+            const response = await fetch(apiUrl('/api/ocr'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    input_path: filePath,
-                    output_path: filePath.replace('.pdf', '_ocr.pdf'), // Simple output naming
+                    input_path: source.path,
                     engine: selectedEngine,
                     language: docLanguage || undefined,
+                    ocr_mode: ocrMode,
                     deskew: deskew,
                     optimize: optimize ? 1 : 0
                 })
@@ -102,6 +118,10 @@ function App() {
 
             const data = await response.json();
             console.log("OCR Started:", data);
+            if (!response.ok) {
+                throw new Error(data.detail || response.statusText);
+            }
+            setCurrentTaskId(data.task_id);
 
         } catch (error) {
             console.error("Failed to start OCR:", error);
@@ -109,6 +129,16 @@ function App() {
             setIsProcessing(false);
         }
     };
+
+    const handleTaskComplete = useCallback((task: TaskStatus) => {
+        setTaskResult(task);
+        setIsProcessing(false);
+    }, []);
+
+    const handleTaskError = useCallback((message: string) => {
+        alert(message);
+        setIsProcessing(false);
+    }, []);
 
     return (
         <div className="flex h-screen bg-gray-100 text-gray-800 font-sans">
@@ -173,7 +203,8 @@ function App() {
                                     <div className="mt-2 text-sm text-green-600 font-medium flex items-center bg-green-50 p-2 rounded border border-green-200">
                                         <FileText size={16} className="mr-2" />
                                         {t('file_selected', language)}: {selectedFile.name}
-                                        <span className="ml-2 text-xs text-gray-400">({(selectedFile as any).path})</span>
+                                        {isUploading && <span className="ml-2 text-xs text-gray-500">{t('uploading', language)}</span>}
+                                        {uploadedPdf && <span className="ml-2 text-xs text-gray-500">{t('upload_ready', language)}</span>}
                                     </div>
                                 )}
                             </div>
@@ -201,6 +232,26 @@ function App() {
 
                                     {/* Global Image Optimization Toggles */}
                                     <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                        <h3 className="text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex items-center">
+                                            {t('ocr_mode_label', language)}
+                                        </h3>
+                                        <div className="grid grid-cols-3 gap-2 mb-4">
+                                            {(['normal', 'force', 'skip'] as const).map(mode => (
+                                                <button
+                                                    key={mode}
+                                                    type="button"
+                                                    onClick={() => setOcrMode(mode)}
+                                                    className={`px-3 py-2 rounded-md border text-xs font-medium transition-colors ${ocrMode === mode
+                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                                                        }`}
+                                                    title={t(`ocr_mode_${mode}_tip`, language)}
+                                                >
+                                                    {t(`ocr_mode_${mode}`, language)}
+                                                </button>
+                                            ))}
+                                        </div>
+
                                         <h3 className="text-xs font-bold text-gray-500 mb-3 uppercase tracking-wider flex items-center">
                                             {t('global_img_opts', language)}
                                         </h3>
@@ -243,17 +294,35 @@ function App() {
                             <div className="flex items-center justify-end border-t pt-6">
                                 <button
                                     onClick={handleStartOCR}
-                                    disabled={!selectedFile || isProcessing}
-                                    className={`flex items-center px-6 py-2.5 rounded-lg text-white font-medium transition-colors focus:ring-4 focus:ring-blue-200 ${!selectedFile || isProcessing ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                                    disabled={!selectedFile || !uploadedPdf || isUploading || isProcessing}
+                                    className={`flex items-center px-6 py-2.5 rounded-lg text-white font-medium transition-colors focus:ring-4 focus:ring-blue-200 ${!selectedFile || !uploadedPdf || isUploading || isProcessing ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
                                         }`}
                                 >
                                     <Play size={18} className="mr-2" />
-                                    {isProcessing ? t('btn_processing', language) : t('btn_start_ocr', language)}
+                                    {isUploading ? t('uploading', language) : isProcessing ? t('btn_processing', language) : t('btn_start_ocr', language)}
                                 </button>
                             </div>
 
                             {/* Progress */}
-                            {isProcessing && <ProgressBar />}
+                            {isProcessing && (
+                                <ProgressBar
+                                    taskId={currentTaskId}
+                                    onComplete={handleTaskComplete}
+                                    onError={handleTaskError}
+                                />
+                            )}
+
+                            {taskResult?.download_url && (
+                                <div className="mt-4 flex justify-end">
+                                    <a
+                                        href={downloadUrl(taskResult.download_url) || '#'}
+                                        className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors"
+                                    >
+                                        <Download size={16} className="mr-2" />
+                                        {t('download_result', language)}
+                                    </a>
+                                </div>
+                            )}
                         </div>
                     </>
                 )}

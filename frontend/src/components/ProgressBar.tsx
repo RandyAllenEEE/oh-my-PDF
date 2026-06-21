@@ -1,10 +1,19 @@
 import React, { useEffect, useState } from 'react';
+import { fetchTaskStatus, WS_BASE_URL, type TaskStatus } from '../utils/api';
 
 interface ProgressBarProps {
     wsUrl?: string;
+    taskId?: string | null;
+    onComplete?: (task: TaskStatus) => void;
+    onError?: (message: string) => void;
 }
 
-export const ProgressBar: React.FC<ProgressBarProps> = ({ wsUrl = "ws://localhost:8000/ws/progress" }) => {
+export const ProgressBar: React.FC<ProgressBarProps> = ({
+    wsUrl = `${WS_BASE_URL}/ws/progress`,
+    taskId,
+    onComplete,
+    onError,
+}) => {
     const [messages, setMessages] = useState<string[]>([]);
     const [progress, setProgress] = useState(0);
 
@@ -23,6 +32,9 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({ wsUrl = "ws://localhos
                 if (data.type === 'progress') {
                     setProgress(data.value);
                     setMessages(p => [...p, data.message]);
+                } else if (data.type === 'task_complete' && (!taskId || data.task_id === taskId)) {
+                    setProgress(current => data.status === 'success' ? 100 : current);
+                    setMessages(p => [...p, data.status === 'success' ? 'Task completed.' : `Task failed: ${data.error || 'Unknown error'}`]);
                 }
             } catch (e) {
                 console.log("Received raw text:", event.data);
@@ -36,7 +48,46 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({ wsUrl = "ws://localhos
         return () => {
             ws.close();
         };
-    }, [wsUrl]);
+    }, [wsUrl, taskId]);
+
+    useEffect(() => {
+        if (!taskId) return;
+
+        let cancelled = false;
+        const poll = async () => {
+            try {
+                const task = await fetchTaskStatus(taskId);
+                if (cancelled) return;
+
+                setProgress(task.progress || (task.status === 'success' ? 100 : 10));
+                setMessages(p => {
+                    const latest = `Task ${task.status}${task.progress ? ` (${task.progress}%)` : ''}`;
+                    return p[p.length - 1] === latest ? p : [...p, latest];
+                });
+
+                if (task.status === 'success') {
+                    onComplete?.(task);
+                    return;
+                }
+                if (task.status === 'failed') {
+                    onError?.(task.error_message || 'Task failed');
+                    return;
+                }
+
+                window.setTimeout(poll, 1000);
+            } catch (error) {
+                if (!cancelled) {
+                    onError?.(`${error}`);
+                }
+            }
+        };
+
+        poll();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [taskId, onComplete, onError]);
 
     return (
         <div className="w-full mt-4">
